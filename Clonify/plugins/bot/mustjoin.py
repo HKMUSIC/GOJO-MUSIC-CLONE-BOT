@@ -6,7 +6,7 @@ from Clonify import app
 
 #--------------------------
 
-MUST_JOIN = "GOJO_NOBITA"
+MUST_JOIN = "GOJO_SUPPORT_GROUP_II"
 
 #--------------------------
 
