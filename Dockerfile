@@ -1,4 +1,4 @@
-FROM nikolaik/python-nodejs:python3.10-nodejs19
+FROM python:3.10-slim-bullseye
 
 RUN sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list && \
     sed -i '/security.debian.org/d' /etc/apt/sources.list && \
