@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bullseye
+FROM nikolaik/python-nodejs:python3.10-nodejs19
 
 RUN rm -rf /etc/apt/sources.list.d/* && \
     echo "deb http://archive.debian.org/debian bullseye main contrib non-free" > /etc/apt/sources.list && \
@@ -12,10 +12,8 @@ RUN rm -rf /etc/apt/sources.list.d/* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY . .
+COPY . /app/
+WORKDIR /app/
+RUN pip3 install --no-cache-dir -U -r requirements.txt
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-CMD ["bash", "start"]
+CMD bash start
