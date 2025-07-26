@@ -1,14 +1,18 @@
 FROM python:3.10-slim-bullseye
 
+# Install git, ffmpeg, and aria2
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg aria2 && \
+    apt-get install -y --no-install-recommends git ffmpeg aria2 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY . /app/
-WORKDIR /app/
+# Set working directory and copy files
+WORKDIR /app
+COPY . .
 
-RUN python -m pip install --no-cache-dir --upgrade pip
-RUN pip3 install --no-cache-dir --upgrade --requirement requirements.txt
+# Upgrade pip and install requirements
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-CMD bash start
+# Start the bot
+CMD ["bash", "start"]
