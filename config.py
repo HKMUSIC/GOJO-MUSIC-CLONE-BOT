@@ -31,6 +31,10 @@ MONGO_DB_URI = getenv("MONGO_DB_URI")
 API_KEY = getenv("API_KEY")
 #---------------------------------------------------------------
 #---------------------------------------------------------------
+API_URL = getenv("API_URL", 'https://api.thequickearn.xyz') #youtube song url
+VIDEO_API_URL = getenv("VIDEO_API_URL", 'https://api.video.thequickearn.xyz')
+API_KEY = getenv("API_KEY", None)
+
 
 # ----------------------------------------------------------------
 DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", 17000))
