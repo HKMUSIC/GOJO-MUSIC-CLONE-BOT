@@ -28,11 +28,12 @@ def track_markup(_, videoid, user_id, channel, fplay):
     return buttons
 
 
-def stream_markup_timer(_, chat_id, played, dur):
+def stream_markup_timer(_, chat_id, played, dur, download_url=None):
     played_sec = time_to_seconds(played)
     duration_sec = time_to_seconds(dur)
     percentage = (played_sec / duration_sec) * 100
     umm = math.floor(percentage)
+
     if 0 < umm <= 10:
         bar = "◉—————————"
     elif 10 < umm < 20:
@@ -53,6 +54,7 @@ def stream_markup_timer(_, chat_id, played, dur):
         bar = "————————◉—"
     else:
         bar = "—————————◉"
+
     buttons = [
         [
             InlineKeyboardButton(
@@ -66,24 +68,47 @@ def stream_markup_timer(_, chat_id, played, dur):
             InlineKeyboardButton(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
             InlineKeyboardButton(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
         ],
-         [InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")],
+        [
+            InlineKeyboardButton(
+                text="🎤 ᴄʜᴀᴛɪɴɢ ʜᴜʙ",
+                url="https://t.me/ALISA_OFFCIAL_MUSIC_BOT/voicehub",
+            ),
+            InlineKeyboardButton(
+                text="ᴅᴏᴡɴʟᴏᴀᴅ",
+                url=download_url if download_url else "https://t.me/ALISA_OFFCIAL_MUSIC_BOT?start=download",
+            ),
+        ],
+        [
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
+        ],
     ]
     return buttons
 
 
-def stream_markup(_, chat_id):
+def stream_markup(_, chat_id, download_url=None):
     buttons = [
         [
             InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
             InlineKeyboardButton(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
             InlineKeyboardButton(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
             InlineKeyboardButton(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
-         ],
-        [InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")],
+        ],
+        [
+            InlineKeyboardButton(
+                text="🎤 ᴄʜᴀᴛɪɴɢ ʜᴜʙ",
+                url="https://t.me/ALISA_OFFCIAL_MUSIC_BOT/voicehub",
+            ),
+            InlineKeyboardButton(
+                text="ᴅᴏᴡɴʟᴏᴀᴅ",
+                url=download_url if download_url else "https://t.me/ALISA_OFFCIAL_MUSIC_BOT?start=download",
+            ),
+        ],
+        [
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")
+        ],
     ]
     return buttons
-
-
+    
 def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
     buttons = [
         [
