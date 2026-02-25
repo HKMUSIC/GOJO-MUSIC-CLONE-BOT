@@ -1,5 +1,6 @@
 import string
-
+import urllib.parse
+import aiohttp
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
 from pytgcalls.exceptions import NoActiveGroupCall
@@ -23,6 +24,51 @@ from Clonify.utils.logger import play_logs
 from Clonify.utils.stream.stream import stream
 from config import BANNED_USERS, lyrical
 
+
+# ========================================================
+# 🚀 JIOSAAVN SEARCH
+# ========================================================
+
+JIOSAAVN_API = "https://jiosavan-lilac.vercel.app/api/search/songs?query="
+JIOSAAVN_CACHE = {}
+
+async def jiosaavn_search(query: str):
+    cache_key = query.lower().strip()
+
+    if cache_key in JIOSAAVN_CACHE:
+        return JIOSAAVN_CACHE[cache_key]
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                JIOSAAVN_API + urllib.parse.quote(query), timeout=6
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    songs = data.get("data", {}).get("results", []) or data.get("results", [])
+                    if songs:
+                        song = songs[0]
+
+                        stream_url = song["downloadUrl"][-1]["url"]
+                        title = song["name"]
+                        duration = int(song.get("duration", 0))
+                        duration_min = f"{duration//60}:{duration%60:02d}"
+
+                        details = {
+                            "title": title,
+                            "link": stream_url,
+                            "path": stream_url,
+                            "dur": duration_min,
+                            "duration_min": duration_min,
+                            "thumb": None,
+                        }
+
+                        JIOSAAVN_CACHE[cache_key] = details
+                        return details
+    except:
+        pass
+
+    return None
 
 @app.on_message(
    filters.command(["play", "vplay", "cplay", "cvplay", "playforce", "vplayforce", "cplayforce", "cvplayforce"] ,prefixes=["/", "!", "%", ",", "", ".", "@", "#"])
@@ -328,29 +374,81 @@ async def play_commnd(
                     LOGGER(__name__).error(ex_type, exc_info=True)
                 return await mystic.edit_text(err)
             return await play_logs(message, streamtype="M3u8 or Index Link")
-    else:
+            else:
         if len(message.command) < 2:
             buttons = botplaylist_markup(_)
             return await mystic.edit_text(
                 _["play_18"],
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
+
         slider = True
         query = message.text.split(None, 1)[1]
+
         if "-v" in query:
             query = query.replace("-v", "")
+
+        # ========================================================
+        # 🚀 TRY JIOSAAVN FIRST (ONLY DIRECT MODE)
+        # ========================================================
+
+        if str(playmode) == "Direct" and not video:
+
+            js_details = await jiosaavn_search(query)
+
+            if js_details:
+                if js_details["duration_min"]:
+                    duration_sec = time_to_seconds(js_details["duration_min"])
+                    if duration_sec > config.DURATION_LIMIT:
+                        return await mystic.edit_text(
+                            _["play_6"].format(
+                                config.DURATION_LIMIT_MIN,
+                                app.mention,
+                            )
+                        )
+
+                try:
+                    await stream(
+                        _,
+                        mystic,
+                        user_id,
+                        js_details,
+                        chat_id,
+                        user_name,
+                        message.chat.id,
+                        streamtype="telegram",
+                        forceplay=fplay,
+                    )
+                except Exception:
+                    pass
+                else:
+                    await mystic.delete()
+                    return await play_logs(
+                        message,
+                        streamtype="JioSaavn",
+                    )
+
+        # ========================================================
+        # 🎥 YOUTUBE FALLBACK
+        # ========================================================
+
         try:
             details, track_id = await YouTube.track(query)
         except:
             return await mystic.edit_text(_["play_3"])
+
         streamtype = "youtube"
+
     if str(playmode) == "Direct":
         if not plist_type:
             if details["duration_min"]:
                 duration_sec = time_to_seconds(details["duration_min"])
                 if duration_sec > config.DURATION_LIMIT:
                     return await mystic.edit_text(
-                        _["play_6"].format(config.DURATION_LIMIT_MIN, app.mention)
+                        _["play_6"].format(
+                            config.DURATION_LIMIT_MIN,
+                            app.mention,
+                        )
                     )
             else:
                 buttons = livestream_markup(
@@ -365,6 +463,7 @@ async def play_commnd(
                     _["play_13"],
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
+
         try:
             await stream(
                 _,
@@ -382,13 +481,15 @@ async def play_commnd(
         except Exception as e:
             ex_type = type(e).__name__
             if ex_type == "AssistantErr":
-                err = e 
+                err = e
             else:
                 err = _["general_2"].format(ex_type)
                 LOGGER(__name__).error(ex_type, exc_info=True)
             return await mystic.edit_text(err)
+
         await mystic.delete()
         return await play_logs(message, streamtype=streamtype)
+
     else:
         if plist_type:
             ran_hash = "".join(
@@ -408,7 +509,11 @@ async def play_commnd(
                 text=cap,
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
-            return await play_logs(message, streamtype=f"Playlist : {plist_type}")
+            return await play_logs(
+                message,
+                streamtype=f"Playlist : {plist_type}",
+            )
+
         else:
             if slider:
                 buttons = slider_markup(
@@ -428,7 +533,11 @@ async def play_commnd(
                     ),
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
-                return await play_logs(message, streamtype=f"Searched on Youtube")
+                return await play_logs(
+                    message,
+                    streamtype="Searched on Youtube",
+                )
+
             else:
                 buttons = track_markup(
                     _,
@@ -442,7 +551,12 @@ async def play_commnd(
                     text=cap,
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
-                return await play_logs(message, streamtype=f"URL Searched Inline")
+                return await play_logs(
+                    message,
+                    streamtype="URL Searched Inline",
+                )
+
+
                                               
             
 @app.on_callback_query(filters.regex("MusicStream") & ~BANNED_USERS)
