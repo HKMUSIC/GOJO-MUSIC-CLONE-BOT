@@ -538,7 +538,57 @@ async def play_commnd(
             )
             if C_LOG_STATUS:
                 try:
-                    await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"Playlist : {p
+                    await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"Playlist : {plist_type}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to send logging enabled message: {e}")
+            return await play_logs(message, streamtype=f"Playlist : {plist_type}")
+        else:
+            if slider:
+                buttons = slider_markup(
+                    _,
+                    track_id,
+                    message.from_user.id,
+                    query,
+                    0,
+                    "c" if channel else "g",
+                    "f" if fplay else "d",
+                )
+                await mystic.delete()
+                await message.reply_photo(
+                    photo=details["thumb"],
+                    caption=_["play_10"].format(
+                        details["title"].title(),
+                        details["duration_min"],
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
+                if C_LOG_STATUS:
+                    try:
+                        await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"Searched on Youtube")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to send logging enabled message: {e}")
+                return await play_logs(message, streamtype=f"Searched on Youtube")
+            else:
+                buttons = track_markup(
+                    _,
+                    track_id,
+                    message.from_user.id,
+                    "c" if channel else "g",
+                    "f" if fplay else "d",
+                )
+                await mystic.delete()
+                await message.reply_photo(
+                    photo=img,
+                    caption=cap,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
+                if C_LOG_STATUS:
+                    try:
+                        await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"URL Searched Inline")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to send logging enabled message: {e}")
+                return await play_logs(message, streamtype=f"URL Searched Inline")
+                
                      
 # Zeo
 @Client.on_callback_query(filters.regex("MusicStream") & ~BANNED_USERS)
