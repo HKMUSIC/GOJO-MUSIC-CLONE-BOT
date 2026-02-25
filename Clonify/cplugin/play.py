@@ -2,15 +2,17 @@ import os
 import random
 import string
 import asyncio
+import aiohttp
+import urllib.parse
+from time import time
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto, Message
 from pytgcalls.exceptions import NoActiveGroupCall
-from Clonify.utils.database import get_assistant
+
 import config
 from Clonify import Apple, Resso, SoundCloud, Spotify, Telegram, YouTube, app
 from Clonify.core.call import PRO
 from Clonify.misc import SUDOERS
-from Clonify.utils.inline import panel_markup_clone
 from Clonify.utils import seconds_to_min, time_to_seconds
 from Clonify.utils.channelplay import get_channeplayCB
 from Clonify.utils.decorators.language import languageCB
@@ -22,6 +24,7 @@ from Clonify.utils.inline import (
     playlist_markup,
     slider_markup,
     track_markup,
+    panel_markup_clone,
 )
 from Clonify.utils.database import (
     add_served_chat_clone,
@@ -30,32 +33,66 @@ from Clonify.utils.database import (
     get_lang,
     is_banned_user,
     is_on_off,
+    get_assistant,
 )
 from Clonify.utils.logger import play_logs, clone_bot_logs
 from Clonify.cplugin.setinfo import get_logging_status, get_log_channel
 from config import BANNED_USERS, lyrical
-from time import time
 from Clonify.utils.extraction import extract_user
+from Clonify.utils.stream.stream import stream # Ensure stream is imported
 
-# Define a dictionary to track the last message timestamp for each user
+# Spam Control
 user_last_message_time = {}
 user_command_count = {}
-# Define the threshold for command spamming (e.g., 20 commands within 60 seconds)
 SPAM_THRESHOLD = 2
 SPAM_WINDOW_SECONDS = 5
 
+# ========================================================
+# 🚀 JIOSAAVN SEARCH LOGIC
+# ========================================================
+
+JIOSAAVN_API = "https://jiosavan-lilac.vercel.app/api/search/songs?query="
+JIOSAAVN_CACHE = {}
+
+async def jiosaavn_search(query: str):
+    cache_key = query.lower().strip()
+    if cache_key in JIOSAAVN_CACHE:
+        return JIOSAAVN_CACHE[cache_key]
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                JIOSAAVN_API + urllib.parse.quote(query), timeout=6
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    songs = data.get("data", {}).get("results", []) or data.get("results", [])
+                    if songs:
+                        song = songs[0]
+                        stream_url = song["downloadUrl"][-1]["url"]
+                        title = song["name"]
+                        duration = int(song.get("duration", 0))
+                        duration_min = f"{duration//60}:{duration%60:02d}"
+
+                        details = {
+                            "title": title,
+                            "link": stream_url,
+                            "path": stream_url,
+                            "dur": duration_min,
+                            "duration_min": duration_min,
+                            "thumb": None,
+                        }
+                        JIOSAAVN_CACHE[cache_key] = details
+                        return details
+    except:
+        pass
+    return None
 
 @Client.on_message(
     filters.command(
         [
-            "play",
-            "vplay",
-            "cplay",
-            "cvplay",
-            "playforce",
-            "vplayforce",
-            "cplayforce",
-            "cvplayforce",
+            "play", "vplay", "cplay", "cvplay", 
+            "playforce", "vplayforce", "cplayforce", "cvplayforce",
         ],
         prefixes=["/", "!", "%", "", ".", "@", "#"],
     )
@@ -77,9 +114,10 @@ async def play_commnd(
     cuser = await client.get_me()
     bot_id = cuser.id
     user_id = message.from_user.id
-
+    
+    # Note: ensure get_owner_id_from_db is imported or defined
+    from Clonify.utils.database import get_owner_id_from_db 
     C_BOT_OWNER_ID = get_owner_id_from_db(bot_id)
-
     bot_mention = cuser.mention
 
     C_LOG_STATUS = get_logging_status(bot_id)
@@ -87,20 +125,15 @@ async def play_commnd(
 
     if str(C_LOGGER_ID) == "-100":
         C_LOGGER_ID = C_BOT_OWNER_ID
-
     clone_logger_id = C_LOGGER_ID
 
-
     current_time = time()
-    # Update the last message timestamp for the user
     last_message_time = user_last_message_time.get(user_id, 0)
 
     if current_time - last_message_time < SPAM_WINDOW_SECONDS:
-        # If less than the spam window time has passed since the last message
         user_last_message_time[user_id] = current_time
         user_command_count[user_id] = user_command_count.get(user_id, 0) + 1
         if user_command_count[user_id] > SPAM_THRESHOLD:
-            # Block the user if they exceed the threshold
             hu = await message.reply_text(
                 f"**{message.from_user.mention} ᴘʟᴇᴀsᴇ ᴅᴏɴᴛ ᴅᴏ sᴘᴀᴍ, ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ ᴀғᴛᴇʀ 5 sᴇᴄ**"
             )
@@ -108,22 +141,18 @@ async def play_commnd(
             await hu.delete()
             return
     else:
-        # If more than the spam window time has passed, reset the command count and update the message timestamp
         user_command_count[user_id] = 1
         user_last_message_time[user_id] = current_time
 
-    # await add_served_chat_clone(message.chat.id)
-    #new -----
-    bot_id = cuser.id
     await add_served_user_clone(message.chat.id, bot_id)
     mystic = await message.reply_text(
         _["play_2"].format(channel) if channel else _["play_1"]
     )
+    
     plist_id = None
     slider = None
     plist_type = None
     spotify = None
-    user_id = message.from_user.id
     user_name = message.from_user.first_name
 
     audio_telegram = (
@@ -136,6 +165,7 @@ async def play_commnd(
         if message.reply_to_message
         else None
     )
+
     if audio_telegram:
         if audio_telegram.file_size > 104857600:
             return await mystic.edit_text(_["play_5"])
@@ -155,27 +185,17 @@ async def play_commnd(
                 "path": file_path,
                 "dur": dur,
             }
-
             try:
                 await stream(
-                    client,
-                    _,
-                    mystic,
-                    user_id,
-                    details,
-                    chat_id,
-                    user_name,
-                    message.chat.id,
-                    streamtype="telegram",
-                    forceplay=fplay,
+                    client, _, mystic, user_id, details, chat_id,
+                    user_name, message.chat.id, streamtype="telegram", forceplay=fplay,
                 )
             except Exception as e:
-                ex_type = type(e).__name__
-                err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
                 print(e)
-                return await mystic.edit_text(e)
+                return await mystic.edit_text(str(e))
             return await mystic.delete()
         return
+
     elif video_telegram:
         if message.reply_to_message.document:
             try:
@@ -203,393 +223,216 @@ async def play_commnd(
             }
             try:
                 await stream(
-                    client,
-                    _,
-                    mystic,
-                    user_id,
-                    details,
-                    chat_id,
-                    user_name,
-                    message.chat.id,
-                    video=True,
-                    streamtype="telegram",
-                    forceplay=fplay,
+                    client, _, mystic, user_id, details, chat_id,
+                    user_name, message.chat.id, video=True, streamtype="telegram", forceplay=fplay,
                 )
             except Exception as e:
-                ex_type = type(e).__name__
-                err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
                 print(e)
-                return await mystic.edit_text(e)
+                return await mystic.edit_text(str(e))
             return await mystic.delete()
         return
+
     elif url:
         if await YouTube.exists(url):
             if "playlist" in url:
                 try:
-                    details = await YouTube.playlist(
-                        url,
-                        config.PLAYLIST_FETCH_LIMIT,
-                        message.from_user.id,
-                    )
+                    details = await YouTube.playlist(url, config.PLAYLIST_FETCH_LIMIT, message.from_user.id)
                 except Exception as e:
                     print(e)
-
                     os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "playlist"
                 plist_type = "yt"
-                if "&" in url:
-                    plist_id = (url.split("=")[1]).split("&")[0]
-                else:
-                    plist_id = url.split("=")[1]
+                plist_id = (url.split("=")[1]).split("&")[0] if "&" in url else url.split("=")[1]
                 img = config.PLAYLIST_IMG_URL
                 cap = _["play_10"]
             elif "https://youtu.be" in url:
                 videoid = url.split("/")[-1].split("?")[0]
-                details, track_id = await YouTube.track(
-                    f"https://www.youtube.com/watch?v={videoid}"
-                )
+                details, track_id = await YouTube.track(f"https://www.youtube.com/watch?v={videoid}")
                 streamtype = "youtube"
                 img = details["thumb"]
-                cap = _["play_11"].format(
-                    details["title"],
-                    details["duration_min"],
-                )
-            elif "youtube.com/@" in url:
-                # Check if the URL is a YouTube channel link or user link
-                try:
-                    video_urls = fetch_channel_videos(url)
-                    for video_url in video_urls:
-                        # Add each video URL to the queue for playback
-                        details, track_id = await YouTube.track(video_url)
-                        streamtype = "playlist"
-                        img = details["thumb"]
-                        cap = _["play_10"].format(
-                            details["title"], details["duration_min"]
-                        )
-                        await queue_video_for_playback(
-                            video_url, details, track_id, streamtype, img, cap
-                        )
-
-                    await mystic.edit_text(
-                        "All videos from the channel have been added to the queue."
-                    )
-                except Exception as e:
-                    print(e)  # Handle or log the error appropriately
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
-
+                cap = _["play_11"].format(details["title"], details["duration_min"])
             else:
                 try:
                     details, track_id = await YouTube.track(url)
                 except Exception as e:
                     print(e)
-
                     os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "youtube"
                 img = details["thumb"]
-                cap = _["play_11"].format(
-                    details["title"],
-                    details["duration_min"],
-                )
+                cap = _["play_11"].format(details["title"], details["duration_min"])
+        
         elif await Spotify.valid(url):
             spotify = True
             if not config.SPOTIFY_CLIENT_ID and not config.SPOTIFY_CLIENT_SECRET:
-                return await mystic.edit_text(
-                    "» sᴘᴏᴛɪғʏ ɪs ɴᴏᴛ sᴜᴘᴘᴏʀᴛᴇᴅ ʏᴇᴛ.\n\nᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ."
-                )
+                return await mystic.edit_text("» sᴘᴏᴛɪғʏ ɪs ɴᴏᴛ sᴜᴘᴘᴏʀᴛᴇᴅ ʏᴇᴛ.\n\nᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.")
             if "track" in url:
-                try:
-                    details, track_id = await Spotify.track(url)
-                except:
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
+                try: details, track_id = await Spotify.track(url)
+                except: os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "youtube"
                 img = details["thumb"]
                 cap = _["play_10"].format(details["title"], details["duration_min"])
             elif "playlist" in url:
-                try:
-                    details, plist_id = await Spotify.playlist(url)
-                except Exception:
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
+                try: details, plist_id = await Spotify.playlist(url)
+                except: os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "playlist"
                 plist_type = "spplay"
                 img = config.SPOTIFY_PLAYLIST_IMG_URL
                 cap = _["play_11"].format(cuser.mention, message.from_user.mention)
+            # (Same logic for album and artist...)
             elif "album" in url:
-                try:
-                    details, plist_id = await Spotify.album(url)
-                except:
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
+                try: details, plist_id = await Spotify.album(url)
+                except: os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "playlist"
                 plist_type = "spalbum"
                 img = config.SPOTIFY_ALBUM_IMG_URL
                 cap = _["play_11"].format(cuser.mention, message.from_user.mention)
             elif "artist" in url:
-                try:
-                    details, plist_id = await Spotify.artist(url)
-                except:
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
+                try: details, plist_id = await Spotify.artist(url)
+                except: os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "playlist"
                 plist_type = "spartist"
                 img = config.SPOTIFY_ARTIST_IMG_URL
                 cap = _["play_11"].format(message.from_user.first_name)
             else:
                 return await mystic.edit_text(_["play_15"])
+
         elif await Apple.valid(url):
             if "album" in url:
-                try:
-                    details, track_id = await Apple.track(url)
-                except:
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
+                try: details, track_id = await Apple.track(url)
+                except: os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "youtube"
                 img = details["thumb"]
                 cap = _["play_10"].format(details["title"], details["duration_min"])
             elif "playlist" in url:
                 spotify = True
-                try:
-                    details, plist_id = await Apple.playlist(url)
-                except:
-
-                    os.system(f"kill -9 {os.getpid()} && bash start")
+                try: details, plist_id = await Apple.playlist(url)
+                except: os.system(f"kill -9 {os.getpid()} && bash start")
                 streamtype = "playlist"
                 plist_type = "apple"
                 cap = _["play_12"].format(cuser.mention, message.from_user.mention)
                 img = url
             else:
-
                 os.system(f"kill -9 {os.getpid()} && bash start")
-        elif await Resso.valid(url):
-            try:
-                details, track_id = await Resso.track(url)
-            except:
 
-                os.system(f"kill -9 {os.getpid()} && bash start")
-            streamtype = "youtube"
-            img = details["thumb"]
-            cap = _["play_10"].format(details["title"], details["duration_min"])
         elif await SoundCloud.valid(url):
-            try:
-                details, track_path = await SoundCloud.download(url)
-            except:
-
-                os.system(f"kill -9 {os.getpid()} && bash start")
+            try: details, track_path = await SoundCloud.download(url)
+            except: os.system(f"kill -9 {os.getpid()} && bash start")
             duration_sec = details["duration_sec"]
             if duration_sec > config.DURATION_LIMIT:
-                return await mystic.edit_text(
-                    _["play_6"].format(
-                        config.DURATION_LIMIT_MIN,
-                        cuser.mention,
-                    )
-                )
+                return await mystic.edit_text(_["play_6"].format(config.DURATION_LIMIT_MIN, cuser.mention))
             try:
-                await stream(
-                    client,
-                    _,
-                    mystic,
-                    user_id,
-                    details,
-                    chat_id,
-                    user_name,
-                    message.chat.id,
-                    streamtype="soundcloud",
-                    forceplay=fplay,
-                )
+                await stream(client, _, mystic, user_id, details, chat_id, user_name, message.chat.id, streamtype="soundcloud", forceplay=fplay)
             except Exception as e:
-                ex_type = type(e).__name__
-                err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-                print(e)
-                return await mystic.edit_text(e)
+                return await mystic.edit_text(str(e))
             return await mystic.delete()
+
         else:
+            # Index / M3u8 logic
             try:
                 await PRO.stream_call(url)
-            except NoActiveGroupCall:
-                await mystic.edit_text(_["black_9"])
-                return await app.send_message(
-                    chat_id=config.CLONE_LOGGER,
-                    text=_["play_17"],
-                )
             except Exception as e:
-                if "phone.CreateGroupCall" in str(e):
-                    await mystic.edit_text(_["black_9"])
-                    return await app.send_message(
-                        chat_id=config.CLONE_LOGGER,
-                        text=_["play_17"],
-                    )
-                else:
-                    print(e)
-                    return await mystic.edit_text(
-                        _["general_2"].format(type(e).__name__)
-                    )
+                print(e)
+                return await mystic.edit_text(_["general_2"].format(type(e).__name__))
             await mystic.edit_text(_["str_2"])
             try:
-                await stream(
-                    client,
-                    _,
-                    mystic,
-                    message.from_user.id,
-                    url,
-                    chat_id,
-                    message.from_user.first_name,
-                    message.chat.id,
-                    video=video,
-                    streamtype="index",
-                    forceplay=fplay,
-                )
+                await stream(client, _, mystic, user_id, url, chat_id, user_name, message.chat.id, video=video, streamtype="index", forceplay=fplay)
             except Exception as e:
-                ex_type = type(e).__name__
-                err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-                print(e)
-                return await mystic.edit_text(e)
+                return await mystic.edit_text(str(e))
             if C_LOG_STATUS:
-                try:
-                    await clone_bot_logs(client, message, bot_mention, clone_logger_id, "M3u8 or Index Link")
-                except Exception as e:
-                    print(f"[ERROR] Failed to send logging enabled message: {e}")
+                await clone_bot_logs(client, message, bot_mention, clone_logger_id, "M3u8 or Index Link")
             return await play_logs(message, streamtype="M3u8 or Index Link")
+
     else:
         if len(message.command) < 2:
             buttons = botplaylist_markup(_)
-            return await mystic.edit_text(
-                _["play_18"],
-                reply_markup=InlineKeyboardMarkup(buttons),
-            )
+            return await mystic.edit_text(_["play_18"], reply_markup=InlineKeyboardMarkup(buttons))
+        
         slider = True
         query = message.text.split(None, 1)[1]
         if "-v" in query:
             query = query.replace("-v", "")
+
+        # ========================================================
+        # 🚀 JIOSAAVN INTEGRATION (DIRECT SEARCH)
+        # ========================================================
+        if str(playmode) == "Direct" and not video:
+            js_details = await jiosaavn_search(query)
+            if js_details:
+                if js_details["duration_min"]:
+                    duration_sec = time_to_seconds(js_details["duration_min"])
+                    if duration_sec > config.DURATION_LIMIT:
+                        return await mystic.edit_text(_["play_6"].format(config.DURATION_LIMIT_MIN, cuser.mention))
+                try:
+                    await stream(
+                        client, _, mystic, user_id, js_details, chat_id,
+                        user_name, message.chat.id, streamtype="telegram", forceplay=fplay,
+                    )
+                    if C_LOG_STATUS:
+                        await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype="JioSaavn")
+                    await mystic.delete()
+                    return await play_logs(message, streamtype="JioSaavn")
+                except Exception:
+                    pass # Fallback to YouTube if stream fails
+
+        # ========================================================
+        # 🎥 YOUTUBE FALLBACK
+        # ========================================================
         try:
             details, track_id = await YouTube.track(query)
         except:
-
             os.system(f"kill -9 {os.getpid()} && bash start")
         streamtype = "youtube"
+        img = details["thumb"]
+        cap = _["play_11"].format(details["title"], details["duration_min"])
+
     if str(playmode) == "Direct":
         if not plist_type:
             if details["duration_min"]:
                 duration_sec = time_to_seconds(details["duration_min"])
                 if duration_sec > config.DURATION_LIMIT:
-                    return await mystic.edit_text(
-                        _["play_6"].format(config.DURATION_LIMIT_MIN, cuser.mention)
-                    )
+                    return await mystic.edit_text(_["play_6"].format(config.DURATION_LIMIT_MIN, cuser.mention))
             else:
-                buttons = livestream_markup(
-                    _,
-                    track_id,
-                    user_id,
-                    "v" if video else "a",
-                    "c" if channel else "g",
-                    "f" if fplay else "d",
-                )
-                return await mystic.edit_text(
-                    _["play_13"],
-                    reply_markup=InlineKeyboardMarkup(buttons),
-                )
+                buttons = livestream_markup(_, track_id, user_id, "v" if video else "a", "c" if channel else "g", "f" if fplay else "d")
+                return await mystic.edit_text(_["play_13"], reply_markup=InlineKeyboardMarkup(buttons))
         try:
-            await stream(
-                client,
-                _,
-                mystic,
-                user_id,
-                details,
-                chat_id,
-                user_name,
-                message.chat.id,
-                video=video,
-                streamtype=streamtype,
-                spotify=spotify,
-                forceplay=fplay,
-            )
+            await stream(client, _, mystic, user_id, details, chat_id, user_name, message.chat.id, video=video, streamtype=streamtype, spotify=spotify, forceplay=fplay)
         except Exception as e:
-            ex_type = type(e).__name__
-            err = e if ex_type == "AssistantErr" else _["general_2"].format(ex_type)
-            print(e)
-            return await mystic.edit_text(e)
+            return await mystic.edit_text(str(e))
         await mystic.delete()
         if C_LOG_STATUS:
-            try:
-                await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=streamtype)
-            except Exception as e:
-                print(f"[ERROR] Failed to send logging enabled message: {e}")
+            await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=streamtype)
         return await play_logs(message, streamtype=streamtype)
+
     else:
         if plist_type:
-            ran_hash = "".join(
-                random.choices(string.ascii_uppercase + string.digits, k=10)
-            )
+            ran_hash = "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
             lyrical[ran_hash] = plist_id
-            buttons = playlist_markup(
-                _,
-                ran_hash,
-                message.from_user.id,
-                plist_type,
-                "c" if channel else "g",
-                "f" if fplay else "d",
-            )
+            buttons = playlist_markup(_, ran_hash, user_id, plist_type, "c" if channel else "g", "f" if fplay else "d")
             await mystic.delete()
-            await message.reply_photo(
-                photo=img,
-                caption=cap,
-                reply_markup=InlineKeyboardMarkup(buttons),
-            )
+            await message.reply_photo(photo=img, caption=cap, reply_markup=InlineKeyboardMarkup(buttons))
             if C_LOG_STATUS:
-                try:
-                    await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"Playlist : {plist_type}")
-                except Exception as e:
-                    print(f"[ERROR] Failed to send logging enabled message: {e}")
+                await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"Playlist : {plist_type}")
             return await play_logs(message, streamtype=f"Playlist : {plist_type}")
         else:
             if slider:
-                buttons = slider_markup(
-                    _,
-                    track_id,
-                    message.from_user.id,
-                    query,
-                    0,
-                    "c" if channel else "g",
-                    "f" if fplay else "d",
-                )
+                buttons = slider_markup(_, track_id, user_id, query, 0, "c" if channel else "g", "f" if fplay else "d")
                 await mystic.delete()
                 await message.reply_photo(
                     photo=details["thumb"],
-                    caption=_["play_10"].format(
-                        details["title"].title(),
-                        details["duration_min"],
-                    ),
+                    caption=_["play_10"].format(details["title"].title(), details["duration_min"]),
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
                 if C_LOG_STATUS:
-                    try:
-                        await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"Searched on Youtube")
-                    except Exception as e:
-                        print(f"[ERROR] Failed to send logging enabled message: {e}")
-                return await play_logs(message, streamtype=f"Searched on Youtube")
+                    await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype="Searched on Youtube")
+                return await play_logs(message, streamtype="Searched on Youtube")
             else:
-                buttons = track_markup(
-                    _,
-                    track_id,
-                    message.from_user.id,
-                    "c" if channel else "g",
-                    "f" if fplay else "d",
-                )
+                buttons = track_markup(_, track_id, user_id, "c" if channel else "g", "f" if fplay else "d")
                 await mystic.delete()
-                await message.reply_photo(
-                    photo=img,
-                    caption=cap,
-                    reply_markup=InlineKeyboardMarkup(buttons),
-                )
+                await message.reply_photo(photo=img, caption=cap, reply_markup=InlineKeyboardMarkup(buttons))
                 if C_LOG_STATUS:
-                    try:
-                        await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype=f"URL Searched Inline")
-                    except Exception as e:
-                        print(f"[ERROR] Failed to send logging enabled message: {e}")
-                return await play_logs(message, streamtype=f"URL Searched Inline")
-                
-                     
+                    await clone_bot_logs(client, message, bot_mention, clone_logger_id, streamtype="URL Searched Inline")
+                return await play_logs(message, streamtype="URL Searched Inline")
+                               
 # Zeo
 @Client.on_callback_query(filters.regex("MusicStream") & ~BANNED_USERS)
 @languageCB
