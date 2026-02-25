@@ -1,6 +1,7 @@
 import string
 import urllib.parse
 import aiohttp
+import random
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
 from pytgcalls.exceptions import NoActiveGroupCall
@@ -71,8 +72,7 @@ async def jiosaavn_search(query: str):
     return None
 
 @app.on_message(
-   filters.command(["play", "vplay", "cplay", "cvplay", "playforce", "vplayforce", "cplayforce", "cvplayforce"] ,prefixes=["/", "!", "%", ",", "", ".", "@", "#"])
-            
+    filters.command(["play", "vplay", "cplay", "cvplay", "playforce", "vplayforce", "cplayforce", "cvplayforce"], prefixes=["/", "!", "%", ",", "", ".", "@", "#"])
     & filters.group
     & ~BANNED_USERS
 )
@@ -108,6 +108,7 @@ async def play_commnd(
         if message.reply_to_message
         else None
     )
+
     if audio_telegram:
         if audio_telegram.file_size > 104857600:
             return await mystic.edit_text(_["play_5"])
@@ -150,6 +151,7 @@ async def play_commnd(
                 return await mystic.edit_text(err)
             return await mystic.delete()
         return
+
     elif video_telegram:
         if message.reply_to_message.document:
             try:
@@ -198,6 +200,7 @@ async def play_commnd(
                 return await mystic.edit_text(err)
             return await mystic.delete()
         return
+
     elif url:
         if await YouTube.exists(url):
             if "playlist" in url:
@@ -236,7 +239,7 @@ async def play_commnd(
                 cap = _["play_11"].format(
                     details["title"],
                     details["duration_min"],
-                                  )
+                )
         elif await Spotify.valid(url):
             spotify = True
             if not config.SPOTIFY_CLIENT_ID and not config.SPOTIFY_CLIENT_SECRET:
@@ -374,7 +377,8 @@ async def play_commnd(
                     LOGGER(__name__).error(ex_type, exc_info=True)
                 return await mystic.edit_text(err)
             return await play_logs(message, streamtype="M3u8 or Index Link")
-            else:
+
+    else:
         if len(message.command) < 2:
             buttons = botplaylist_markup(_)
             return await mystic.edit_text(
@@ -393,9 +397,7 @@ async def play_commnd(
         # ========================================================
 
         if str(playmode) == "Direct" and not video:
-
             js_details = await jiosaavn_search(query)
-
             if js_details:
                 if js_details["duration_min"]:
                     duration_sec = time_to_seconds(js_details["duration_min"])
@@ -555,9 +557,8 @@ async def play_commnd(
                     message,
                     streamtype="URL Searched Inline",
                 )
+                
 
-
-                                              
             
 @app.on_callback_query(filters.regex("MusicStream") & ~BANNED_USERS)
 @languageCB
