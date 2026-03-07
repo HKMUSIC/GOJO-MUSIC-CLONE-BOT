@@ -71,11 +71,11 @@ def stream_markup_timer(_, chat_id, played, dur, download_url=None):
         [
             InlineKeyboardButton(
                 text="🎤 ᴄʜᴀᴛɪɴɢ ʜᴜʙ",
-                url="https://t.me/ALISA_OFFCIAL_MUSIC_BOT/voicehub",
+                url="http://t.me/Gjsjdibot/voicechat",
             ),
             InlineKeyboardButton(
                 text="ᴅᴏᴡɴʟᴏᴀᴅ",
-                url=download_url if download_url else "https://t.me/ALISA_OFFCIAL_MUSIC_BOT?start=download",
+                url=download_url if download_url else "https://t.me/qtalisabot?start=download",
             ),
         ],
         [
